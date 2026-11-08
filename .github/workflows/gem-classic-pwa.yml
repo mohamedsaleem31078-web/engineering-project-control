@@ -50,6 +50,13 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test PDF import, pin, photo, save, reload without internet
         run: node tests/e2e.cjs
+      - name: Package tested Offline PWA for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: GEM_V6_Classic_Offline_PWA
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
       - uses: actions/upload-pages-artifact@v3
         if: github.ref == 'refs/heads/main'
         with:
