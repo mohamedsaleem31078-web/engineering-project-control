@@ -52,6 +52,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test PDF import, pin, photo, save, reload without internet
         run: node tests/e2e.cjs
+      - name: Verify portable backup, restore and offline reload
+        run: node tests/restore-check.cjs
       - name: Package tested Offline PWA for download
         uses: actions/upload-artifact@v4
         with:
@@ -63,6 +65,43 @@ jobs:
         if: github.ref == 'refs/heads/main'
         with:
           path: dist
+  windows_verify:
+    name: Windows Chromium and backup/restore
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract sanitized Classic source
+        run: |
+          unzip -oq gem-classic-source.zip -d .
+          git show HEAD:app.js > app.js
+          test -s tests/e2e.cjs
+          test -s tests/restore-check.cjs
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bundle matching PDF.js and Chromium test tools
+        run: |
+          npm install --no-save --package-lock=false pdfjs-dist@4.10.38 playwright@1.56.1
+          mkdir -p vendor
+          cp node_modules/pdfjs-dist/build/pdf.min.mjs vendor/pdf.min.mjs
+          cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/pdf.worker.min.mjs
+          npx playwright install chromium
+      - name: Build and validate Windows-hosted PWA
+        run: |
+          node --check app.js
+          node --check offline-bridge.js
+          python build_hosted_site.py dist
+          python tests/static_gate.py dist
+      - name: Real Chromium PDF, issue, pin, photo and offline test on Windows
+        run: node tests/e2e.cjs
+      - name: Windows ZIP backup and restore acceptance
+        run: node tests/restore-check.cjs
   deploy:
     if: github.ref == 'refs/heads/main'
     needs: verify
