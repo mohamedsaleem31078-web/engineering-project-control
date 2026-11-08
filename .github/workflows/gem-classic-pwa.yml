@@ -39,21 +39,6 @@ jobs:
           cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/pdf.worker.min.mjs
           test -s vendor/pdf.min.mjs
           test -s vendor/pdf.worker.min.mjs
-      - name: Fix empty planning schedule in hosted Classic issue form
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('app.js');s=p.read_text()
-          before="(sched?sched.rows.filter(r=>r.type==='Task'):[])"
-          after="(sched&&Array.isArray(sched.rows)?sched.rows.filter(r=>r.type==='Task'):[])"
-          assert before in s,'Expected Classic issue form code missing'
-          p.write_text(s.replace(before,after))
-          p=Path('offline-bridge.js');s=p.read_text()
-          before="schedule:window.GEM_SCHEDULE||{},"
-          after="schedule:window.GEM_SCHEDULE||{rows:[]},"
-          assert before in s,'Expected offline schedule code missing'
-          p.write_text(s.replace(before,after))
-          PY
       - name: Build privacy-filtered PWA
         run: |
           node --check app.js
@@ -63,17 +48,6 @@ jobs:
           python3 tests/static_gate.py dist
       - name: Install test Chromium
         run: npx playwright install --with-deps chromium
-      - name: Trace PDF import and IndexedDB writes
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('tests/e2e.cjs')
-          s=p.read_text()
-          s=s.replace("const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));", "const page=await context.newPage(),errors=[];page.on('pageerror',e=>{errors.push(e.message);console.log('PAGE_ERROR:',e.message)});page.on('console',m=>console.log('BROWSER:',m.type(),m.text().slice(0,1200)));")
-          s=s.replace("await page.locator('#fileDrawing').setInputFiles", "await page.evaluate(()=>{const save=GEM_OFFLINE.save.bind(GEM_OFFLINE);GEM_OFFLINE.save=async data=>{console.log('SAVE_ATTEMPT',data.drawings.length);const x=await save(data);console.log('SAVE_COMPLETE',data.drawings.length);return x;}});await page.locator('#fileDrawing').setInputFiles")
-          s=s.replace("const added=await page.evaluate(async()=>await(await fetch('/api/state')).json());", "await page.waitForTimeout(500);const debug=await page.evaluate(async()=>({state:await(await fetch('/api/state')).json(),toast:document.querySelector('#toast')?.textContent,offline:await GEM_OFFLINE.load()}));console.log('AFTER_PDF',JSON.stringify({drawings:debug.state.drawings?.length,offline:debug.offline.drawings?.length,toast:debug.toast}));const added=debug.state;")
-          p.write_text(s)
-          PY
       - name: Test PDF import, pin, photo, save, reload without internet
         run: node tests/e2e.cjs
       - uses: actions/upload-pages-artifact@v3
