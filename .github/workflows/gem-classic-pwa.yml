@@ -21,6 +21,8 @@ jobs:
           set -euo pipefail
           test -s gem-classic-source.zip || { echo "::error::Missing sanitized source bundle"; exit 1; }
           unzip -oq gem-classic-source.zip -d .
+          # Use latest reviewed app.js in GitHub rather than stale archived app.js
+          git show HEAD:app.js > app.js
           for f in index.html app.js styles.css offline-bridge.js browser-export.js pdfjs-adapter.js build_hosted_site.py tests/e2e.cjs tests/static_gate.py; do
             test -s "$f" || { echo "::error file=$f::Missing source file"; exit 1; }
           done
