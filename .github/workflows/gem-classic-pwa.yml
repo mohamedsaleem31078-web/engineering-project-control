@@ -1,4 +1,4 @@
-name: GEM Classic PWA release gate
+name: Verify and deploy GEM Classic PWA
 on:
   push:
     branches: [gem-classic-pwa-release, main]
@@ -7,38 +7,48 @@ permissions:
   contents: read
   pages: write
   id-token: write
+concurrency:
+  group: gem-classic-pages
+  cancel-in-progress: false
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Verify full Classic source was imported
+      - name: Extract sanitized original Classic app bundle
         shell: bash
         run: |
           set -euo pipefail
+          test -s gem-classic-source.zip || { echo "::error::Missing sanitized source bundle"; exit 1; }
+          unzip -oq gem-classic-source.zip -d .
           for f in index.html app.js styles.css offline-bridge.js browser-export.js pdfjs-adapter.js build_hosted_site.py tests/e2e.cjs tests/static_gate.py; do
-            if [ ! -s "$f" ]; then echo "::error file=$f::Missing full sanitized GEM Classic application source"; exit 1; fi
+            test -s "$f" || { echo "::error file=$f::Missing source file"; exit 1; }
           done
-      - name: Install pinned PDF.js and Playwright
+          test ! -f demo.html
+          test ! -d project
+          test ! -d tiles
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download pinned Mozilla PDF.js plus matching worker
         run: npm install --no-save --package-lock=false pdfjs-dist@4.10.38 playwright@1.56.1
-      - name: Bundle PDF.js local engine and matching worker
+      - name: Bundle PDF.js for offline use
         run: |
           mkdir -p vendor
           cp node_modules/pdfjs-dist/build/pdf.min.mjs vendor/pdf.min.mjs
           cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/pdf.worker.min.mjs
-          test -s vendor/pdf.min.mjs && test -s vendor/pdf.worker.min.mjs
-      - name: Build verified, privacy-safe PWA
+          test -s vendor/pdf.min.mjs
+          test -s vendor/pdf.worker.min.mjs
+      - name: Build privacy-filtered PWA
         run: |
           node --check app.js
           node --check offline-bridge.js
+          node --check pdfjs-adapter.js
           python3 build_hosted_site.py dist
           python3 tests/static_gate.py dist
-      - name: Install Chromium
+      - name: Install test Chromium
         run: npx playwright install --with-deps chromium
-      - name: PDF, pins, photos, save, offline browser acceptance
+      - name: Test PDF import, pin, photo, save, reload without internet
         run: node tests/e2e.cjs
       - uses: actions/upload-pages-artifact@v3
         if: github.ref == 'refs/heads/main'
@@ -46,11 +56,11 @@ jobs:
           path: dist
   deploy:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
     needs: verify
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
