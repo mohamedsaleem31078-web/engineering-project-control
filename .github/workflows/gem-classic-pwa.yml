@@ -39,6 +39,21 @@ jobs:
           cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/pdf.worker.min.mjs
           test -s vendor/pdf.min.mjs
           test -s vendor/pdf.worker.min.mjs
+      - name: Fix empty planning schedule in hosted Classic issue form
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app.js');s=p.read_text()
+          before="(sched?sched.rows.filter(r=>r.type==='Task'):[])"
+          after="(sched&&Array.isArray(sched.rows)?sched.rows.filter(r=>r.type==='Task'):[])"
+          assert before in s,'Expected Classic issue form code missing'
+          p.write_text(s.replace(before,after))
+          p=Path('offline-bridge.js');s=p.read_text()
+          before="schedule:window.GEM_SCHEDULE||{},"
+          after="schedule:window.GEM_SCHEDULE||{rows:[]},"
+          assert before in s,'Expected offline schedule code missing'
+          p.write_text(s.replace(before,after))
+          PY
       - name: Build privacy-filtered PWA
         run: |
           node --check app.js
