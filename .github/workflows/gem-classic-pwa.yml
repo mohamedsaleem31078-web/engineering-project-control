@@ -1,0 +1,75 @@
+name: Verify and deploy GEM Classic PWA
+on:
+  push:
+    branches: [gem-classic-pwa-release, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: gem-classic-pages
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract sanitized original Classic app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s gem-classic-source.zip || { echo "::error::Missing sanitized source bundle"; exit 1; }
+          unzip -oq gem-classic-source.zip -d .
+          # Use latest reviewed app.js in GitHub rather than stale archived app.js
+          git show HEAD:app.js > app.js
+          for f in index.html app.js styles.css offline-bridge.js browser-export.js pdfjs-adapter.js build_hosted_site.py tests/e2e.cjs tests/static_gate.py; do
+            test -s "$f" || { echo "::error file=$f::Missing source file"; exit 1; }
+          done
+          test ! -f demo.html
+          test ! -d project
+          test ! -d tiles
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download pinned Mozilla PDF.js plus matching worker
+        run: npm install --no-save --package-lock=false pdfjs-dist@4.10.38 playwright@1.56.1
+      - name: Bundle PDF.js for offline use
+        run: |
+          mkdir -p vendor
+          cp node_modules/pdfjs-dist/build/pdf.min.mjs vendor/pdf.min.mjs
+          cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs vendor/pdf.worker.min.mjs
+          test -s vendor/pdf.min.mjs
+          test -s vendor/pdf.worker.min.mjs
+      - name: Build privacy-filtered PWA
+        run: |
+          node --check app.js
+          node --check offline-bridge.js
+          node --check pdfjs-adapter.js
+          python3 build_hosted_site.py dist
+          python3 tests/static_gate.py dist
+      - name: Install test Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Test PDF import, pin, photo, save, reload without internet
+        run: node tests/e2e.cjs
+      - name: Package tested Offline PWA for download
+        uses: actions/upload-artifact@v4
+        with:
+          name: GEM_V6_Classic_Offline_PWA
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: dist
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: verify
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
